@@ -1314,6 +1314,7 @@ function onLoggedIn(user) {
     persist.pendingLogin = null;
     savePersist();
     backfillProfile();
+    restoreResults();
     renderProfile();
     showToast('Přihlášeno!');
 }
@@ -1326,6 +1327,34 @@ function backfillProfile() {
         return { d: d.toISOString().slice(0, 10), score, dayIdx: Number(idx) };
     });
     if (days.length) apiPost('/api/profile/backfill', { days });
+}
+
+// Opak backfillProfile: nové zařízení má prázdný persist.results, i když
+// účet už má odehrané dny na serveru. Doplní jen chybějící indexy dní —
+// nikdy nepřepíše, co je lokálně už teď (i kdyby to bylo jiné, třeba
+// z rozehraného dne, co se ještě nestihl uložit) — a přepočítá sérii.
+async function restoreResults() {
+    const d = await apiGet('/api/me/results');
+    if (!d || !Array.isArray(d.days)) return;
+    let changed = false;
+    for (const { dayIdx, score } of d.days) {
+        if (persist.results[dayIdx] === undefined) { persist.results[dayIdx] = score; changed = true; }
+    }
+    if (!changed) return;
+    migrateStreak(persist);
+    // Doplněná historie nemá "oslavovat" úspěchy, na které se dosáhlo dávno,
+    // jen na jiném zařízení — potichu je označí za získané (tečka, bez fronty
+    // na oznámení), stejně jako syncAchievements dělá při úplně prvním spuštění
+    // appky s už odehranou historií. Bez tohohle by následující renderProfile
+    // (→ syncAchievements) tyhle úspěchy vzal jako čerstvě splněné teď.
+    const st = achState();
+    for (const a of Achievements.LIST) {
+        if (persist.achGot[a.id] || !Achievements.done(a, st)) continue;
+        persist.achGot[a.id] = todayStr();
+        persist.achUnseen.push(a.id);
+    }
+    savePersist();
+    renderProfile();
 }
 
 // Odkaz z mailu se otevře v jiném prohlížeči (a na iOS má instalovaná PWA

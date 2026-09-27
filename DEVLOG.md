@@ -1,5 +1,44 @@
 # Devlog
 
+## 2026-09-27
+
+### Přihlášení na novém zařízení obnoví odehrané dny ze serveru
+Denní výzva (`profile_days`) se na serveru vždycky ukládala per účet, ale
+klient statistiky v profilu (série, odehrané dny, úspěšnost) i úspěchy
+počítal jen z `persist.results` v `localStorage` — na novém zařízení tedy
+po přihlášení vypadal profil prázdně, i když účet měl reálnou historii
+(ta byla vidět jen na veřejném profilu, který si ji čte přímo ze serveru).
+Přihlášení teď odehrané dny stáhne a doplní si je lokálně.
+
+**Root cause / approach:** Nový `GET /api/me/results` (`worker/src/profile.js`,
+`myResults`) vrátí `[{dayIdx, score}]` z `profile_days` podle session, ne
+podle přezdívky jako `apiProfile` — ten by se skrytým profilem vrátil
+404 i vlastníkovi. Klientská `restoreResults()` (game.js, volá se z
+`onLoggedIn()` vedle stávající `backfillProfile()`, opačným směrem) doplní
+jen chybějící indexy dní — nikdy nepřepíše, co je lokálně už teď — a
+přepočítá sérii přes stávající `migrateStreak()`. Úspěchy, které doplněná
+historie nově splní, se potichu označí za získané (tečka, bez fronty na
+oznámení) stejně, jako to `syncAchievements()` už dělá při úplně prvním
+spuštění appky s odehranou historií — jinak by `renderProfile()` hned
+po přihlášení vypsal „Nový úspěch!“ za něco, co hráč ve skutečnosti
+dohrál dávno, jen na jiném zařízení. Ověřeno v Chromiu (dev-login + ruční
+`restoreResults()`, protože ten jede jen přes skutečné přihlášení):
+doplnění dnů beze změny lokálních/konfliktních dat, přepočet série,
+statistiky v profilu i tichý zápis úspěchů.
+
+Trénink (`persist.practiceSeen`/`practiceBestRun`/`practiceHard`) tímhle
+neprochází — server má jen souhrnný počet slov za den
+(`training_days.words`), ne která slova to byla, takže se bitová mapa
+`practiceSeen` odsud nedá zpětně sestavit. Necháno beze změny.
+
+**Vedlejší nález, neopraveno:** stejné přihlášení na novém zařízení
+nezávisle na tomhle vyvolá falešné „Nový úspěch! Nová tvář“ — `auth.user.avatar`
+z `refreshAuth()` dorazí až po prvním `syncAchievements()` (voláném při
+startu appky), takže se avatarový úspěch tváří jako čerstvě splněný.
+Reprodukováno i bez týhle změny (holé přihlášení + otevření profilu).
+
+→ *No new memory entries.*
+
 ## 2026-09-25
 
 ### Hlavička profilu (soukromého i veřejného) fixní při scrollu

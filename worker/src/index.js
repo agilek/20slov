@@ -11,7 +11,7 @@ import {
     authStart, authPoll, authVerify, authApprove, authLandingPage,
     authLogout, meGet, meSetHandle, meSetAvatar, meDelete, currentUser, purgeAuth, devMode, devLogin,
 } from './auth.js';
-import { apiProfile, profilePage, validPlayedOn, points } from './profile.js';
+import { apiProfile, profilePage, validPlayedOn, points, myResults } from './profile.js';
 import { defCacheKey, dropDefCache } from './defcache.js';
 import { ADMIN_ROUTES } from './admin.js';
 import Achievements from '../../public/achievements.js';
@@ -52,6 +52,7 @@ const ROUTES = {
     'GET /api/profile': apiProfile,
     'POST /api/profile/backfill': handleBackfill,
     'GET /api/me/points': handleMyPoints,
+    'GET /api/me/results': handleMyResults,
     'POST /api/training': handleTraining,
     'POST /api/achievements': handleAchievements,
     'GET /api/achievements/stats': handleAchievementStats,
@@ -172,6 +173,16 @@ async function handleMyPoints(request, env) {
     const user = await currentUser(request, env);
     if (!user) return json({ error: 'not logged in' }, 401);
     return json(await points(env, user.id), 200);
+}
+
+// Odehrané dny účtu pro obnovu persist.results na novém zařízení (viz
+// restoreResults v game.js) — po přihlášení, ať profil neukazuje nulu i
+// s odehranou historií. Jde přes session, ne veřejný profil (ten by
+// se skrytým profilem vrátil 404 i vlastníkovi).
+async function handleMyResults(request, env) {
+    const user = await currentUser(request, env);
+    if (!user) return json({ error: 'not logged in' }, 401);
+    return json({ days: await myResults(env, user.id) }, 200);
 }
 
 // Jedno uhodnuté slovo tréninku. Klient si ho tvrdí sám jako /api/result,

@@ -116,6 +116,16 @@ async function loadProfile(env, handle) {
     };
 }
 
+// Vlastní odehrané dny přihlášeného účtu — obnoví lokální persist.results
+// na novém zařízení (viz restoreResults v game.js). Na rozdíl od apiProfile
+// jde po user_id ze session, ne po přezdívce: funguje i se skrytým profilem.
+export async function myResults(env, userId) {
+    const { results } = await env.DB.prepare(
+        'SELECT day_idx AS dayIdx, score FROM profile_days WHERE user_id = ?1'
+    ).bind(userId).all();
+    return results;
+}
+
 export async function apiProfile(request, env, url) {
     const data = await loadProfile(env, url.searchParams.get('handle'));
     if (!data) return json({ error: 'not found' }, 404);
