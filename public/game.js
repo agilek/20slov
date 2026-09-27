@@ -1138,7 +1138,11 @@ const myAvatar = () => (auth.user && auth.user.avatar) || persist.avatar;
 async function refreshAuth() {
     const d = await apiGet('/api/me');
     auth.enabled = !!(d && d.auth);
+    const wasUser = !!auth.user;
     auth.user = d ? d.user : null;
+    // Účet (a jeho avatar) poprvé zjištěný v týhle relaci nemá "oslavovat"
+    // úspěch starý měsíce — viz markAchieved.
+    if (auth.user && !wasUser) { markAchieved(achState()); savePersist(); }
 }
 
 function el(tag, cls, text) {
@@ -1343,16 +1347,8 @@ async function restoreResults() {
     if (!changed) return;
     migrateStreak(persist);
     // Doplněná historie nemá "oslavovat" úspěchy, na které se dosáhlo dávno,
-    // jen na jiném zařízení — potichu je označí za získané (tečka, bez fronty
-    // na oznámení), stejně jako syncAchievements dělá při úplně prvním spuštění
-    // appky s už odehranou historií. Bez tohohle by následující renderProfile
-    // (→ syncAchievements) tyhle úspěchy vzal jako čerstvě splněné teď.
-    const st = achState();
-    for (const a of Achievements.LIST) {
-        if (persist.achGot[a.id] || !Achievements.done(a, st)) continue;
-        persist.achGot[a.id] = todayStr();
-        persist.achUnseen.push(a.id);
-    }
+    // jen na jiném zařízení — viz markAchieved.
+    markAchieved(achState());
     savePersist();
     renderProfile();
 }
@@ -1466,20 +1462,31 @@ function achState() {
     return st;
 }
 
-// Zapíše nově splněné (datum + nové) a rozsvítí tečku na Profilu.
-function syncAchievements() {
-    const st = achState();
-    let fresh = !persist.achInit;
+// Nově splněné (dosud ne v achGot) označí za získané (datum + tečka
+// achUnseen) a vrátí jejich id — volající rozhodne, jestli je i zařadit do
+// fronty na oznámení. syncAchievements to dělá vždycky po prvním spuštění;
+// data, co dorazí později (restoreResults, refreshAuth, loadMyPoints), jen
+// potichu označí — jinak by appka "oslavovala" úspěch starý měsíce, jen
+// poprvé zjištěný na tomhle zařízení.
+function markAchieved(st) {
+    const got = [];
     for (const a of Achievements.LIST) {
         if (persist.achGot[a.id] || !Achievements.done(a, st)) continue;
         persist.achGot[a.id] = todayStr();
         persist.achUnseen.push(a.id);
-        // Úspěchy z historie (první spuštění s úspěchy) se neoznamují, jen svítí tečkou.
-        if (persist.achInit) persist.achQueue.push(a.id);
-        fresh = true;
+        got.push(a.id);
     }
+    return got;
+}
+
+// Zapíše nově splněné (datum + nové) a rozsvítí tečku na Profilu.
+function syncAchievements() {
+    const st = achState();
+    const got = markAchieved(st);
+    // Úspěchy z historie (první spuštění s úspěchy) se neoznamují, jen svítí tečkou.
+    if (persist.achInit) persist.achQueue.push(...got);
     persist.achInit = true;
-    if (fresh) savePersist();
+    if (got.length) savePersist();
     reportAchievements();
     $('topBar').querySelector('.icon-btn').classList.toggle('icon-btn--dot', persist.achUnseen.length > 0);
     return st;
@@ -1618,7 +1625,15 @@ document.addEventListener('click', e => {
 async function loadMyPoints() {
     const pill = $('profilePoints');
     const d = auth.user && await apiGet('/api/me/points');
-    if (d && Number.isInteger(d.total)) { state.points = d; renderAchievements(); whenCalm(); }
+    if (d && Number.isInteger(d.total)) {
+        const wasPoints = !!state.points;
+        state.points = d;
+        // Body účtu poprvé zjištěné v týhle relaci nemají "oslavovat" úspěch
+        // starý měsíce (významy, hlasy, trénink) — viz markAchieved.
+        if (!wasPoints) { markAchieved(achState()); savePersist(); }
+        renderAchievements();
+        whenCalm();
+    }
     pill.hidden = !(d && Number.isInteger(d.total));
     if (!pill.hidden) setEmojiText(pill, `⭐ ${fmtNum(d.total)} ${plural(d.total, 'bod', 'body', 'bodů')}`);
 }

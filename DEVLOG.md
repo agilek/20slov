@@ -2,6 +2,35 @@
 
 ## 2026-09-27
 
+### Falešné oslavy úspěchů z pozdě dorazivších dat (avatar, body účtu)
+Navazuje na obnovu historie výš: nezávisle na ní appka uměla po přihlášení
+na novém zařízení vypsat "Nový úspěch! Nová tvář" (a stejně tak úspěchy za
+významy/hlasy/trénink z bodů účtu) — i když je hráč ve skutečnosti získal
+dávno, jen se to na tomhle zařízení dozvěděla appka až teď.
+
+**Root cause / approach:** `syncAchievements()` se volá už při startu appky,
+kdy `auth.user` ani `state.points` ještě nejsou načtené (obojí přijde až
+asynchronně, `refreshAuth()`/`loadMyPoints()`, typicky až při otevření
+profilu) — tenhle úplně první běh proto appku označí jako „inicializovanou“
+(`persist.achInit`), než měla šanci znát celý stav účtu. Jakmile pak
+`auth.user.avatar` nebo `state.points` poprvé v týhle relaci dorazí a
+`renderProfile()`/`renderAchievements()` spustí `syncAchievements()` znovu,
+nově splněné bere jako čerstvé teď, ne jako starou historii.
+
+Řešení: `syncAchievements()` rozdělené na `markAchieved(st)` (jen označí
+získané, vrátí nově získané id) a zbytek (fronta na oznámení, jen když
+`achInit`). `refreshAuth()` a `loadMyPoints()` teď při **první** znalosti
+`auth.user`/`state.points` v týhle relaci zavolají `markAchieved()` samy,
+potichu, dřív než doběhne navazující `renderProfile()` — díky tomu ho
+`syncAchievements()` uvnitř najde už označené a do fronty ho nedá.
+`restoreResults()` (viz výš) teď taky jen volá `markAchieved()` místo
+vlastní kopie stejné logiky. Ověřeno v Chromiu: čerstvé přihlášení +
+otevření profilu bez jediné bubliny, `persist.achQueue` prázdné,
+`achGot`/`achUnseen` správně označené; normální hraní (úspěch splněný
+poprvé v běžící relaci, `achInit` už `true`) dál řádně frontu naplní.
+
+→ *No new memory entries.*
+
 ### Přihlášení na novém zařízení obnoví odehrané dny ze serveru
 Denní výzva (`profile_days`) se na serveru vždycky ukládala per účet, ale
 klient statistiky v profilu (série, odehrané dny, úspěšnost) i úspěchy
