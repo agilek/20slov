@@ -11,7 +11,7 @@
 //
 // CACHE a SHELL skládá `node tools/stamp.mjs` z index.html — ručně je neupravuj.
 
-const CACHE = '20slov-3db7c310';
+const CACHE = '20slov-70e576d7';
 const SHELL = [
     '/',
     '/icons/icon.svg',
@@ -30,7 +30,8 @@ const SHELL = [
     '/words.js?v=726cd556',
     '/avatar.js?v=5bda5401',
     '/achievements.js?v=04a11446',
-    '/game.js?v=dd2726c1',
+    '/analytics.js?v=c9f59735',
+    '/game.js?v=f991b252',
     '/icons/icon-192.png',
     '/icons/icon-512.png',
 ];
@@ -54,7 +55,8 @@ self.addEventListener('activate', (event) => {
 });
 
 const nikdyNecachovat = (url) =>
-    url.pathname.startsWith('/api/') || url.pathname.startsWith('/u/') || url.pathname === '/prihlaseni';
+    url.pathname.startsWith('/api/') || url.pathname.startsWith('/u/') || url.pathname === '/prihlaseni'
+    || url.pathname.startsWith('/ingest/');
 
 self.addEventListener('fetch', (event) => {
     const req = event.request;

@@ -103,6 +103,8 @@
 
         <p id="feedbackLine" class="feedback-line">Něco nefunguje, slovo ti nesedí, nebo tě napadlo, co přidat? <span class="feedback-link" role="button" tabindex="0" onclick="openFeedbackModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFeedbackModal();}">Napiš nám.</span> Každou zprávu čteme a hru podle hráčů ladíme.</p>
 
+        <p id="statsLine" class="feedback-line">Anonymní statistiky hry: <span class="feedback-link" id="statsToggle" role="button" tabindex="0" onclick="toggleStats()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleStats();}"></span>. <a class="feedback-link" href="/soukromi">Co se měří</a></p>
+
         <!-- Odhlášení a nevratné smazání úplně dole, jen pro přihlášeného -->
         <div class="account-end" id="accountEnd" hidden></div>
     </div>
@@ -364,6 +366,7 @@
 <script src="words.js?v=726cd556"></script>
 <script src="avatar.js?v=5bda5401"></script>
 <script src="achievements.js?v=04a11446"></script>
-<script src="game.js?v=dd2726c1"></script>
+<script src="analytics.js?v=c9f59735"></script>
+<script src="game.js?v=f991b252"></script>
 </body>
 </html>

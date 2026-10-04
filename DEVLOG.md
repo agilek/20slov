@@ -1,5 +1,16 @@
 # Devlog
 
+## 2026-10-04
+
+### PostHog analytika: chování hráčů přes proxy /ingest
+Hra znala jen dohrané dny z D1 (`/admin`). Nově jde anonymní analytika do PostHog Cloud EU (free): `public/analytics.js` + volání `track()` ve `game.js` (`day_started`, `day_finished` s řetězcem `marks`, trénink, obrazovky, sdílení, účtový trychtýř, významy, instalace, push, úspěchy), vypínač v profilu a nová sekce v `/soukromi`. Server vrací `created` při přihlášení kvůli rozlišení registrace.
+
+**Root cause / approach:** `posthog-js` jde přes vlastní doménu (`/ingest/*` ve workeru), bez cookies, ID = existující `clientId`, jen na 20slov.cz. Past při testu: posthog-js tiše zahazuje události z HeadlessChrome, takže v agent-browseru vypadá, že nic neodchází. `wrangler deploy` s tokenem z `~/.config/cloudflare` nejde, jen přes OAuth (`env -u CLOUDFLARE_API_TOKEN`).
+
+Po prvním nasazení doplněno: utm na sdílených odkazech a push (`utm_source=share|push`), `login_prompt_shown/clicked` jako jmenovatel účtového trychtýře, `game_left` při odchodu na pozadí (pozice, kde lidé odcházejí, i trénink bez křížku) a v `day_finished` časy `time_left` po slovech, `wrong` a `shuffles` pro ladění obtížnosti. Dashboard „20 slov – přehled“ (30 dlaždic) vznikl přes API z dočasného klíče, který je smazaný.
+
+→ *Memory saved: `posthog_analytics.md`; doplněno `cloudflare_do_it_yourself.md`*
+
 ## 2026-09-27
 
 ### Falešné oslavy úspěchů z pozdě dorazivších dat (avatar, body účtu)

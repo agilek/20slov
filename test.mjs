@@ -349,6 +349,82 @@ test('alternativa je vždy ze stejných písmen', () => {
     }
 });
 
+/* ---------------- anonymní statistiky ---------------- */
+
+// analytics.js ve vm s falešným prohlížečem: skript PostHogu se netahá nikdy
+// mimo ostrou doménu ani po vypnutí, události před načtením čekají a po
+// vypnutí se zahazují.
+const prohlizec = (hostname) => {
+    const skripty = [], volani = [];
+    const ph = {
+        init: (key, cfg) => { volani.push(['init', key, cfg]); cfg.loaded(ph); },
+        register: (p) => volani.push(['register', p]),
+        capture: (n, p) => volani.push(['capture', n, p]),
+        opt_out_capturing: () => volani.push(['opt_out']),
+        opt_in_capturing: () => volani.push(['opt_in']),
+        has_opted_out_capturing: () => false,
+    };
+    const win = { posthog: ph, addEventListener: () => {} };
+    const ctx = { window: win, location: { hostname }, module: undefined,
+        document: { readyState: 'complete', head: { appendChild: (el) => skripty.push(el) }, createElement: () => ({}) } };
+    vm.createContext(ctx);
+    vm.runInContext(readFileSync('public/analytics.js', 'utf8') + '\nthis.Analytics = Analytics;', ctx);
+    return { A: ctx.Analytics, skripty, volani };
+};
+test('statistiky: mimo 20slov.cz nic', () => {
+    const { A, skripty } = prohlizec('localhost');
+    A.init({ id: 'x', off: false, traits: {} });
+    A.track('day_started');
+    assert.equal(skripty.length, 0);
+});
+test('statistiky: vypnuté v profilu se ani nenačtou', () => {
+    const { A, skripty } = prohlizec('20slov.cz');
+    A.init({ id: 'x', off: true, traits: {} });
+    assert.equal(skripty.length, 0);
+});
+test('statistiky: fronta, init přes /ingest, vypnutí za běhu', () => {
+    const { A, skripty, volani } = prohlizec('20slov.cz');
+    A.init({ id: 'zarizeni-1', off: false, traits: { platform: 'ios' } });
+    A.track('day_started', { day_idx: 3 });                       // PostHog ještě není načtený
+    assert.equal(skripty[0].src, '/ingest/static/array.js');
+    skripty[0].onload();
+    const init = volani.find(v => v[0] === 'init');
+    assert.equal(init[2].api_host, '/ingest');
+    assert.equal(init[2].persistence, 'localStorage');            // žádné cookies
+    assert.equal(init[2].autocapture, false);
+    assert.equal(init[2].disable_session_recording, true);
+    assert.equal(init[2].bootstrap.distinctID, 'zarizeni-1');
+    assert.deepEqual(volani.find(v => v[0] === 'capture').slice(1), ['day_started', { day_idx: 3 }]);
+    A.setOff(true);
+    A.track('day_finished', {});
+    assert.equal(volani.filter(v => v[0] === 'capture').length, 1, 'po vypnutí se nic neposílá');
+    assert.ok(volani.some(v => v[0] === 'opt_out'));
+});
+await (async () => {   // top-level await: `test` výše je synchronní
+  try {
+    const volane = [];
+    const puvodni = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+        volane.push([url, init]);
+        return new Response('ok', { status: 200, headers: { 'Set-Cookie': 'ph=1', 'Content-Length': '2' } });
+    };
+    try {
+        const hlavicky = { Cookie: 'sid=tajne', 'CF-Connecting-IP': '1.2.3.4' };
+        const sk = await worker.fetch(new Request('https://x/ingest/static/array.js', { headers: hlavicky }), {});
+        const ev = await worker.fetch(new Request('https://x/ingest/e/?v=1', { method: 'POST', body: '{}', headers: hlavicky }), {});
+        assert.equal(volane[0][0], 'https://eu-assets.i.posthog.com/static/array.js');
+        assert.equal(volane[1][0], 'https://eu.i.posthog.com/e/?v=1');
+        assert.equal(volane[1][1].headers.get('cookie'), null);
+        assert.equal(volane[1][1].headers.get('x-forwarded-for'), '1.2.3.4');
+        assert.equal(sk.headers.get('set-cookie'), null);
+        assert.equal(ev.status, 200);
+        const del = await worker.fetch(new Request('https://x/ingest/e/', { method: 'DELETE' }), {});
+        assert.equal(del.status, 404);
+    } finally { globalThis.fetch = puvodni; }
+    passed++;
+  } catch (e) { console.error(`✘ statistiky: proxy /ingest\n  ${e.message}`); process.exitCode = 1; }
+})();
+
 /* ---------------- verze statiky ---------------- */
 
 // ?v= v index.html a CACHE/SHELL v sw.js jsou otisky obsahu. Kdo změní CSS

@@ -13,7 +13,7 @@ directory = "./public"
 binding = "ASSETS"
 # Neznámá cesta dostane public/404.html se stavem 404 (ne holou chybu).
 not_found_handling = "404-page"
-run_worker_first = ["/api/*", "/prihlaseni", "/u/*"]
+run_worker_first = ["/api/*", "/prihlaseni", "/u/*", "/ingest/*"]
 
 [[d1_databases]]
 binding = "DB"

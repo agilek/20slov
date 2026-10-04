@@ -32,7 +32,7 @@
 <div class="screen active public-page privacy-page">
 <article class="privacy">
 <h1>Zásady soukromí</h1>
-<p class="updated">Platné od 25. 9. 2026</p>
+<p class="updated">Platné od 4. 10. 2026</p>
 
 <p>Hra 20 slov ukládá co nejméně. E-mail ani IP adresu nemá v databázi v čitelné podobě. Hrát jde i bez účtu a účet můžeš kdykoli smazat.</p>
 
@@ -53,11 +53,21 @@
     <li>K účtu se ukládá přezdívka, avatar, odehrané dny a jejich skóre, počet slov z tréninku, úspěchy, významy slov, které napíšeš, a tvoje hlasy. Uloží se i ID zařízení, ze kterého ses poprvé přihlásil.</li>
     <li>Veřejný profil na adrese <code>20slov.cz/u/přezdívka</code> ukazuje přezdívku, avatar, body, sérii, odehrané dny a úspěchy. U významů slov je vidět tvoje přezdívka.</li>
     <li>Kvůli ochraně proti zneužití se při přihlašování na krátko uloží otisk IP adresy a e-mailu. Mažou se nejpozději do dvou dnů.</li>
-    <li>Přihlášení drží jedna cookie. Platí rok nebo do odhlášení. Jiné cookies ani sledovací nástroje hra nepoužívá.</li>
+    <li>Přihlášení drží jedna cookie. Platí rok nebo do odhlášení. Jiné cookies hra nepoužívá.</li>
 </ul>
 
+<h2>Anonymní statistiky</h2>
+<p>Abych věděl, kolik lidí hru hraje, kde se zasekávají a co nikdo nepoužívá, měřím anonymní statistiky službou PostHog (servery v EU). Jde přes moji doménu, ne přímo do prohlížeče třetí strany.</p>
+<ul>
+    <li><strong>Co se měří:</strong> náhodné ID zařízení (to samé, které hra už ukládá), události jako začátek a konec dne, skóre, délka hraní, otevřené obrazovky a zda ses přihlásil, dále typ zařízení, prohlížeč, země a odkud jsi přišel.</li>
+    <li><strong>Co se neměří:</strong> e-mail, přezdívka, text významů ani zpětné vazby. IP adresa se neukládá. Nahrávání obrazovky a sledování napříč weby nepoužívám.</li>
+    <li><strong>Ukládá se jen v prohlížeči</strong> (localStorage), žádná další cookie.</li>
+    <li><strong>Vypnout</strong> jde kdykoli v Profilu, řádek „Anonymní statistiky hry“, nebo nastavením Do Not Track v prohlížeči. Po vypnutí se nic neodesílá.</li>
+</ul>
+<p>Důvodem je oprávněný zájem na zlepšování hry. Data se drží nejvýše rok.</p>
+
 <h2>Smazání účtu</h2>
-<p>Tlačítko <strong>Smazat účet</strong> v profilu smaže účet, přezdívku, avatar, odehrané dny, trénink, úspěchy, hlasy i přihlášení. <strong>Významy slov, které jsi napsal, zůstanou</strong> ostatním hráčům, jen bez tvého jména. Nahlášení cizích významů zůstanou kvůli ochraně proti zneužití, ale bez vazby na tebe. Výsledky vázané jen na náhodné ID zařízení zůstanou v anonymních statistikách.</p>
+<p>Tlačítko <strong>Smazat účet</strong> v profilu smaže účet, přezdívku, avatar, odehrané dny, trénink, úspěchy, hlasy i přihlášení. <strong>Významy slov, které jsi napsal, zůstanou</strong> ostatním hráčům, jen bez tvého jména. Nahlášení cizích významů zůstanou kvůli ochraně proti zneužití, ale bez vazby na tebe. Výsledky a anonymní statistiky vázané jen na náhodné ID zařízení zůstanou.</p>
 
 <h2>Zpětná vazba</h2>
 <p>Formulář „Jak se ti hraje?“ odesílá zprávu přes službu FormSubmit (formsubmit.co) na můj e-mail. E-mail v něm je nepovinný.</p>
@@ -66,6 +76,7 @@
 <ul>
     <li><strong>Cloudflare</strong>: hosting a databáze. Při provozu vidí IP adresy.</li>
     <li><strong>Resend</strong>: přihlašovací e-maily.</li>
+    <li><strong>PostHog</strong>: anonymní statistiky (EU).</li>
     <li><strong>FormSubmit</strong>: zpětná vazba.</li>
     <li><strong>Push služba tvého prohlížeče</strong>: doručení připomínek.</li>
 </ul>

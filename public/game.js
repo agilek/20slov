@@ -166,6 +166,10 @@ function siteUrl() {
     return FALLBACK_URL;
 }
 
+// Odkaz ve sdílené zprávě nese zdroj, ať statistiky poznají, kolik nových
+// hráčů sdílení přivedlo (zprávy v messengerech často nemají referrer).
+const shareUrl = (medium) => `${siteUrl()}?utm_source=share&utm_medium=${medium}`;
+
 /* ---------------- herní stav (runtime) ---------------- */
 
 let state = {
@@ -509,6 +513,7 @@ function showScreen(id) {
         return;
     }
     const fromId = from && from.id, key = navKey(id);
+    if (id !== 'game') track('screen_viewed', { screen: id });   // hru měří day_started/practice_started
     let kind;
     if (!from) kind = 'none';
     else if (id === 'game') kind = navStack.includes('game') ? 'pop' : 'present';
@@ -929,6 +934,7 @@ async function voteDef(def, btn) {
     if (!r.ok) return showToast((r.data && r.data.error) || 'Hlas se nepodařilo uložit.');
     def.votes = r.data.votes;
     def.voted = r.data.voted;
+    if (def.voted) track('def_voted');
     setEmojiText(btn, `👍 ${def.votes}`);
     btn.classList.toggle('voted', !!def.voted);
     // Hlas může změnit, kdo je nejlepší — v detailu slova přeřadit.
@@ -946,6 +952,7 @@ async function voteDef(def, btn) {
 
 function openDefs(e) {
     if (e) e.stopPropagation();
+    track('defs_opened', { mode: state.mode });
     holdWordDone();                                       // kdo čte významy, pokračuje sám
     const word = state.wdWord;
     $('defsTitle').textContent = word || 'Významy';
@@ -973,8 +980,9 @@ function renderDefsForm() {
     if (!auth.enabled) return;
     const b = el('button', 'btn btn-primary', auth.user ? 'Zvolit přezdívku' : 'Přihlásit se');
     b.type = 'button';
-    b.onclick = () => { closeDefs(); exitPractice(); showProfile(); };
+    b.onclick = () => { track('login_prompt_clicked', { where: 'defs_gate' }); closeDefs(); exitPractice(); showProfile(); };
     gate.appendChild(b);
+    if (!auth.user) trackPromptShown('defs_gate');
 }
 
 function closeDefs() {
@@ -1123,6 +1131,7 @@ async function submitDef(e) {
     const fresh = await apiGet(defsUrl(word));
     if (fresh && fresh.defs) defCache.set(word, fresh.defs[word] || null);
     renderWdCard(word);
+    track('def_submitted');
     showToast('Díky! Význam je uložený.');
 }
 
@@ -1131,6 +1140,41 @@ async function submitDef(e) {
 // Dokud nejsou nastavené secrety pro odesílání pošty, vrací /api/me auth:false
 // a sekce účtu se vůbec neukáže — hra jede dál anonymně.
 const auth = { enabled: false, user: null, polling: null };
+
+// Anonymní statistiky (analytics.js). Společné vlastnosti se posílají s každou
+// událostí; hra z toho nikdy nesmí dostat chybu, proto try.
+function statTraits() {
+    return {
+        platform: IS_IOS ? 'ios' : /android/i.test(navigator.userAgent) ? 'android' : 'desktop',
+        standalone: IS_STANDALONE,
+        has_account: !!auth.user,
+        played_days: playedDays(),
+        streak: liveStreak(),
+        notif_on: 'Notification' in window && Notification.permission === 'granted',
+    };
+}
+function track(name, props) {
+    try { Analytics.set(statTraits()); Analytics.track(name, props); } catch (e) {}
+}
+const marksStr = (marks) => marks.map(m => m ? 1 : 0).join('');
+// Nabídka účtu se překresluje často; do statistik jde jednou za načtení a místo.
+const promptsSeen = new Set();
+function trackPromptShown(where) {
+    if (promptsSeen.has(where)) return;
+    promptsSeen.add(where);
+    track('login_prompt_shown', { where });
+}
+
+// Přepínač v profilu: vypnuté statistiky se neposílají ani nenačítají.
+function renderStatsToggle() {
+    $('statsToggle').textContent = persist.noStats ? 'vypnuto' : 'zapnuto';
+}
+function toggleStats() {
+    persist.noStats = !persist.noStats;
+    savePersist();
+    Analytics.setOff(persist.noStats);
+    renderStatsToggle();
+}
 
 // Avatar účtu, jinak ten vybraný v zařízení.
 const myAvatar = () => (auth.user && auth.user.avatar) || persist.avatar;
@@ -1184,6 +1228,7 @@ function renderAccount() {
 }
 
 function renderSignedOut(box) {
+    trackPromptShown('profile');
     const form = el('form', 'feedback-form');
     const input = el('input');
     input.type = 'email';
@@ -1201,6 +1246,7 @@ function renderSignedOut(box) {
         const r = await apiPost('/api/auth/start', { email: input.value });
         btn.disabled = false;
         if (!r.ok) return formError(err, (r.data && r.data.error) || 'Nepodařilo se odeslat.');
+        track('login_started');
         persist.pendingLogin = { id: r.data.loginId, expiresAt: r.data.expiresAt };
         savePersist();
         renderAccount();
@@ -1239,7 +1285,7 @@ function renderAwaitingCode(box) {
             { loginId: persist.pendingLogin.id, code: input.value.trim() });
         btn.disabled = false;
         const st = r.data && r.data.status;
-        if (st === 'ok') return onLoggedIn(r.data.user);
+        if (st === 'ok') return onLoggedIn(r.data.user, r.data.created);
         formError(err, st === 'badcode'
             ? `Kód nesedí. Zbývá ${r.data.left} pokusů.`
             : 'Platnost vypršela, nech si poslat nový odkaz.');
@@ -1272,6 +1318,7 @@ function renderHandlePicker(box) {
         auth.user = r.data.user;
         persist.nick = r.data.user.handle;
         savePersist();
+        track('handle_set');
         renderProfile();
     };
     box.append(form);
@@ -1300,6 +1347,7 @@ function renderSignedIn(box) {
     del.onclick = async () => {
         if (!confirm('Opravdu smazat účet? Tvoje významy zůstanou ostatním, jen se z nich sundá tvoje jméno.')) return;
         await apiPost('/api/me/delete', {});
+        track('account_deleted');
         auth.user = null;
         persist.nick = '';
         savePersist();
@@ -1312,9 +1360,10 @@ function renderSignedIn(box) {
     $('accountEnd').hidden = false;
 }
 
-function onLoggedIn(user) {
+function onLoggedIn(user, created) {
     stopLoginPolling();
     auth.user = user;
+    track('login_completed', { is_new: !!created });
     persist.pendingLogin = null;
     savePersist();
     backfillProfile();
@@ -1364,7 +1413,7 @@ function startLoginPolling() {
         if (--left < 0 || !persist.pendingLogin) return stopLoginPolling();
         const d = await apiGet(`/api/auth/poll?id=${encodeURIComponent(id)}`);
         if (!d) return;
-        if (d.status === 'ok') return onLoggedIn(d.user);
+        if (d.status === 'ok') return onLoggedIn(d.user, d.created);
         if (d.status === 'expired') {
             stopLoginPolling();
             persist.pendingLogin = null;
@@ -1484,7 +1533,10 @@ function syncAchievements() {
     const st = achState();
     const got = markAchieved(st);
     // Úspěchy z historie (první spuštění s úspěchy) se neoznamují, jen svítí tečkou.
-    if (persist.achInit) persist.achQueue.push(...got);
+    if (persist.achInit) {
+        persist.achQueue.push(...got);
+        got.forEach(id => track('achievement_unlocked', { id }));
+    }
     persist.achInit = true;
     if (got.length) savePersist();
     reportAchievements();
@@ -1717,6 +1769,7 @@ async function sharePublicProfile() {
     const handle = state.profileHandle;
     // Profil žije na serveru, kde je účet — ne na FALLBACK_URL pro sdílení z localhostu.
     const link = `${location.origin}/u/${encodeURIComponent(handle)}`;
+    track('share_clicked', { method: 'link' });
     if (navigator.share) { try { await navigator.share({ title: `${handle} — 20 slov`, url: link }); } catch (e) {} return; }
     try { await navigator.clipboard.writeText(link); showToast('Odkaz na profil zkopírován.'); }
     catch (e) { showToast(link); }
@@ -1859,6 +1912,8 @@ function startGame() {
         savePersist();
     }
     state.solved = state.marks.filter(Boolean).length;
+    state.playSec = 0;
+    track('day_started', { day_idx: idx, resumed: state.resumed });
     placeGameGrid('game');
     showScreen('game');
     if (IS_DESKTOP && !persist.kbHintShown) {
@@ -1941,6 +1996,8 @@ function startPracticeGame() {
     state.solved = 0;
     state.practiceCount = 0;
     state.lostStreak = 0;
+    state.playSec = 0;
+    track('practice_started', { level: persist.practiceLevel });
     clearTimeout(state.nextTimer);
     state.nextTimer = null;
     hideWordDone();
@@ -2169,6 +2226,7 @@ function checkWord() {
     state.wordIdx++;
     state.solved++;
     state.marks.push(true);
+    if (state.mode === 'daily' && persist.day) (persist.day.left ||= []).push(state.time);   // zbylý čas na slovo (statistiky)
     // Úspěch z denní výzvy se oznamuje až po ní. Do konce dne čeká u dne:
     // v persist.ach by ho po reloadu uprostřed hry (iOS Safari po návratu
     // z jiné aplikace) našel start a oznámil na úvodu dřív, než hráč dohraje.
@@ -2321,6 +2379,7 @@ function handleTimeout() {
     const target = state.words[state.wordIdx] || '';
     state.wordIdx++;
     state.marks.push(false);
+    if (state.mode === 'daily' && persist.day) (persist.day.left ||= []).push(0);
     updateGameGrid(state.marks.length - 1);
     saveDayProgress();
 
@@ -2387,6 +2446,7 @@ function shuffleLetters() {
     const tiles = [...row.children];
     if (tiles.length < 2) return;
     state.shuffledThisWord = true;
+    if (state.mode === 'daily' && persist.day) persist.day.shuffles = (persist.day.shuffles || 0) + 1;
     haptic('tap');
 
     tiles.forEach(t => { t.classList.remove('entering'); t.style.animation = 'none'; });
@@ -2478,6 +2538,7 @@ function startTimer() {
     updateUI();
     state.timer = setInterval(() => {
         state.time--;
+        state.playSec++;                                  // aktivní čas hraní pro statistiky
         if (state.time <= 0) {
             clearInterval(state.timer);
             state.time = 0;
@@ -2562,17 +2623,23 @@ function quitDaily() {
     state.quitting = false;
     state.gen++;                                          // zahodit naplánované kroky kola
     clearInterval(state.timer);
+    const quitAt = state.marks.length;                    // kolik slov se opravdu hrálo
     while (state.marks.length < WORDS_PER_DAY) state.marks.push(false);
     state.wordIdx = WORDS_PER_DAY;
     state.solved = state.marks.filter(Boolean).length;
     state.processing = false;
     updateGameGrid();
     saveDayProgress();
-    finishDay();
+    finishDay(quitAt);
 }
 
 function exitPractice() {
     if (state.mode !== 'practice') return;
+    const solved = state.marks.filter(Boolean).length;
+    track('practice_ended', {
+        level: persist.practiceLevel, solved, missed: state.marks.length - solved,
+        marks: marksStr(state.marks), duration_s: state.playSec,
+    });
     state.gen++;
     clearInterval(state.timer);
     clearTimeout(state.nextTimer);
@@ -2586,13 +2653,23 @@ function exitPractice() {
 // Na pozadí hra stojí a odpočet mezihry se zruší, ať hráči slovo neuteče.
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden) return;
+    // Kdo zavře kartu nebo přepne aplikaci uprostřed hry, jinak nezanechá stopu:
+    // pozice, kde hráči odcházejí, a trénink, který neskončil křížkem.
+    if ($('game').classList.contains('active') && (state.mode === 'daily' || state.mode === 'practice')) {
+        track('game_left', {
+            mode: state.mode, words_done: state.marks.length, solved: state.marks.filter(Boolean).length,
+            time_left: state.time, duration_s: state.playSec,
+            ...(state.mode === 'practice' && { marks: marksStr(state.marks) }),
+        });
+    }
     pauseGame();
     holdWordDone();
 });
 
 /* ---------------- konec dne + výsledek ---------------- */
 
-function finishDay() {
+// quitAt: den byl vzdán po tolika slovech (jen z quitDaily).
+function finishDay(quitAt) {
     clearInterval(state.timer);
     const perfect = state.marks.length === WORDS_PER_DAY && state.marks.every(Boolean);
     persist.day.done = true;
@@ -2613,6 +2690,17 @@ function finishDay() {
     if (new Date().getHours() < 4) persist.ach.sova = 1;
     savePersist();
     syncAchievements();
+    const played = quitAt ?? WORDS_PER_DAY;
+    const left = persist.day.left || [];
+    track('day_finished', {
+        day_idx: persist.day.dayIdx, score: persist.results[persist.day.dayIdx], perfect,
+        marks: marksStr(state.marks.slice(0, played)),   // kratší než 20 = vzdáno
+        duration_s: state.playSec, quit: quitAt !== undefined,
+        // obtížnost: zbylé sekundy u každého slova (0 = vypršelo), špatné pokusy, přeskládání;
+        // den rozehraný před nasazením statistik nemá časy poskládané po pozicích
+        time_left: left.length === played ? left : null,
+        wrong: persist.day.wrong || 0, shuffles: persist.day.shuffles || 0,
+    });
     showResult(false);
     refreshRealPercentile(); // dozdobí % v pozadí, jakmile (a pokud) dorazí z backendu
 }
@@ -2711,7 +2799,8 @@ function renderStreakNudge() {
     box.appendChild(setEmojiText(el('p'), `🔥 ${fmtNum(s)} dní v řadě — a celá série žije jen v tomhle zařízení.`));
     const b = el('button', 'btn btn-primary', 'Uložit sérii k účtu');
     b.type = 'button';
-    b.onclick = () => showProfile();
+    b.onclick = () => { track('login_prompt_clicked', { where: 'streak_nudge' }); showProfile(); };
+    track('login_prompt_shown', { where: 'streak_nudge' });
     box.appendChild(b);
     box.style.display = 'block';
 }
@@ -2857,7 +2946,7 @@ function buildShareMessage() {
     const trophy = getTrophyShareLine(survived);
     if (trophy) msg += `\n\n${trophy}`;
     msg += `\n\n🫵 Překonáš mě?`;
-    msg += `\n\n${siteUrl()}`;
+    msg += `\n\n${shareUrl('text')}`;
     return msg;
 }
 
@@ -2874,6 +2963,7 @@ function isMobileShare() {
 }
 
 function shareText(msg) {
+    track('share_clicked', { method: 'text' });
     if (isMobileShare() && navigator.share) {
         // Musí běžet přímo v gestu uživatele, jinak iOS sheet neotevře.
         navigator.share({ text: msg }).catch(err => {
@@ -3059,6 +3149,7 @@ function downloadCard(file) {
 // Pochlubit se → náhled karty v sheetu; sdílí se až tlačítkem pod ním,
 // takže navigator.share běží v čerstvém gestu a karta je dávno hotová.
 async function shareScore() {
+    track('share_clicked', { method: 'card_preview' });
     const ready = prepareShareCard();
     const day = persist.day;
     const img = $('sharePreview'), btn = $('shareCardBtn');
@@ -3077,6 +3168,7 @@ async function shareScore() {
 function shareCardFile() {
     const file = shareCard && shareCard.file;
     if (!file) return;
+    track('share_clicked', { method: 'card' });
     // Chlouba počítá dny se sdílenou kartou, ne klepnutí
     if (persist.ach.sdilenoDen !== todayStr()) {
         persist.ach.sdileno = (persist.ach.sdileno || 0) + 1;
@@ -3085,7 +3177,7 @@ function shareCardFile() {
     savePersist();
     syncAchievements();
     if (!canShareCard(file)) { downloadCard(file); closeModal(); return; }
-    navigator.share({ files: [file], text: `${cardTier(persist.day).theme.dare} ${siteUrl()}` }).then(() => closeModal()).catch(err => {
+    navigator.share({ files: [file], text: `${cardTier(persist.day).theme.dare} ${shareUrl('card')}` }).then(() => closeModal()).catch(err => {
         if (err && err.name === 'AbortError') return;   // jen zavřel share sheet — náhled zůstává
         downloadCard(file);   // sdílení souborů blokované
     });
@@ -3101,6 +3193,12 @@ function registerServiceWorker() {
 // Na iOS Push funguje jen z nainstalované PWA (Add to Home Screen), ne z karty
 // Safari — proto se tam nejdřív nabídne instalace, tlačítko notifikací přijde
 // na řadu až po ní. Jinde (Android/desktop) jde rovnou žádost o oprávnění.
+let a2hsTracked = false;
+function showA2hs(banner) {
+    banner.style.display = 'block';
+    if (!a2hsTracked) { a2hsTracked = true; track('a2hs_shown'); }   // jednou za načtení, ne při každém překreslení
+}
+
 function updateNotifyPrompt() {
     const banner = $('a2hsBanner');
     const notifyBtn = $('notifyBtn');
@@ -3109,12 +3207,12 @@ function updateNotifyPrompt() {
     if (!VAPID_PUBLIC_KEY) return;
 
     if (IS_IOS && !IS_STANDALONE) {
-        if (!persist.a2hsPromptDismissed) banner.style.display = 'block';
+        if (!persist.a2hsPromptDismissed) showA2hs(banner);
         return;
     }
     // Chrome/Android: beforeinstallprompt přijde jen neinstalované hře, takže
     // nabídka zmizí sama. Safari nic takového nemá (viz a2hsPromptDismissed).
-    if (installPrompt && !IS_STANDALONE && !persist.a2hsPromptDismissed) banner.style.display = 'block';
+    if (installPrompt && !IS_STANDALONE && !persist.a2hsPromptDismissed) showA2hs(banner);
     if (!('Notification' in window && 'PushManager' in window)) return;
     if (Notification.permission === 'default') notifyBtn.style.display = 'flex';
     // Povolení ještě neznamená odběr: mohl selhat nebo vypršet a připomínky by
@@ -3137,6 +3235,7 @@ window.addEventListener('beforeinstallprompt', e => {
     if ($('result').classList.contains('active')) updateNotifyPrompt();
 });
 window.addEventListener('appinstalled', () => {
+    track('a2hs_accepted');
     installPrompt = null;
     persist.a2hsPromptDismissed = true;
     savePersist();
@@ -3177,6 +3276,7 @@ async function enableNotifications() {
         });
         const { endpoint, keys } = sub.toJSON();
         await apiPost('/api/subscribe', { endpoint, keys });
+        track('notif_enabled');
         showToast('Upozornění zapnuto!');
     } catch (e) {
         // tichý fail — notifikace jsou čistě volitelné vylepšení
@@ -3366,6 +3466,7 @@ function submitFeedback(e) {
         headers: { Accept: 'application/json' },
     }).then(r => {
         if (!r.ok) throw new Error();
+        track('feedback_sent', { has_email: !!form.elements.email.value });
         form.reset();
         form.style.display = 'none';
         $('feedbackSuccess').style.display = 'block';
@@ -3534,6 +3635,8 @@ document.addEventListener('dblclick', e => e.preventDefault(), { passive: false 
     }
     addHapticOverlays();
     registerServiceWorker();
+    Analytics.init({ id: persist.clientId, off: persist.noStats, traits: statTraits() });
+    renderStatsToggle();
     showWelcome();
     restoreRoute();
     syncAchievements();   // tečka na Profilu, i pro úspěchy z dřívějška

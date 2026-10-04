@@ -174,6 +174,7 @@ export async function authVerify(request, env, url) {
 async function finishLogin(env, req) {
     let { results: found } = await env.DB.prepare('SELECT * FROM users WHERE email_hash = ?1').bind(req.email_hash).all();
     let user = found[0];
+    const created = !user;
     if (!user) {
         const id = rand(16);
         await env.DB.prepare(
@@ -188,7 +189,7 @@ async function finishLogin(env, req) {
     }
     await env.DB.prepare('UPDATE login_requests SET consumed_at = ?1 WHERE id = ?2').bind(now(), req.id).run();
     const setCookie = await startSession(env, user.id);
-    return json({ status: 'ok', user: publicUser(user) }, 200, { 'Set-Cookie': setCookie });
+    return json({ status: 'ok', user: publicUser(user), created }, 200, { 'Set-Cookie': setCookie });
 }
 
 // Cíl magic linku. Nic nemění — schválení odešle až tlačítko (POST).

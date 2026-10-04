@@ -73,6 +73,7 @@ export default {
         if (request.method === 'GET' && url.pathname.startsWith('/u/')) {
             return profilePage(request, env, url);
         }
+        if (url.pathname.startsWith('/ingest/')) return ingest(request, url);
         const handler = ROUTES[`${request.method} ${url.pathname}`];
         if (!handler) {
             // Sem dojde i každá adresa, pro kterou [assets] nenašly soubor: s workerem
@@ -99,6 +100,27 @@ export default {
         ctx.waitUntil(purgeAuth(env));   // prošlé žádosti a session, ať IP hashe neleží
     },
 };
+
+// Anonymní statistiky: PostHog (EU) přes vlastní doménu, ať je blokátory
+// neberou jako cizí tracker a hra nemluví s třetí stranou. Skript a konfigurace
+// (/static, /array) jdou na assets hostitele, události na ingestion. Cookies
+// se nepřeposílají; IP jde v X-Forwarded-For jen kvůli zemi, PostHog ji po
+// zpracování zahodí (projektové nastavení „Discard client IP data“).
+async function ingest(request, url) {
+    if (request.method !== 'GET' && request.method !== 'POST') return json({ error: 'not found' }, 404);
+    const path = url.pathname.slice('/ingest'.length);
+    const host = /^\/(static|array)\//.test(path) ? 'eu-assets.i.posthog.com' : 'eu.i.posthog.com';
+    const headers = new Headers(request.headers);
+    for (const h of ['cookie', 'origin', 'referer', 'host']) headers.delete(h);
+    headers.set('X-Forwarded-For', request.headers.get('CF-Connecting-IP') || '');
+    const res = await fetch(`https://${host}${path}${url.search}`, {
+        method: request.method, headers, body: request.method === 'POST' ? request.body : undefined,
+    });
+    // Odpověď bez Set-Cookie a bez hlaviček, které by po dekompresi nesedělo.
+    const out = new Headers(res.headers);
+    for (const h of ['set-cookie', 'content-encoding', 'content-length']) out.delete(h);
+    return new Response(res.body, { status: res.status, headers: out });
+}
 
 // Hra i API jedou na jedné doméně, takže CORS není potřeba vůbec.
 function sameOrigin(request, url) {
@@ -515,7 +537,7 @@ async function sendDailyReminders(env) {
                     payload: {
                         title: '20 slov',
                         body: 'Dnešní slovo na tebe čeká! 🔤',
-                        url: SITE_URL,
+                        url: SITE_URL + '?utm_source=push&utm_medium=reminder',   // statistiky pak poznají, kdo se vrátil z připomínky
                     },
                     adminContact: ADMIN_CONTACT,
                 },
