@@ -1,5 +1,21 @@
 # Devlog
 
+## 2026-10-07
+
+### Přechody mezi obrazovkami: odpověď serveru nepřestavuje obrazovku uprostřed animace
+Přechod na profil se zadrhl zhruba v půlce. Profil se po vykreslení znovu staví z odpovědí `/api/me`, `/api/defs/mine` a `/api/me/points` (innerHTML achievementů, nový layout a paint celé stránky) a ty dorazí právě za ~150–300 ms animace. Navíc první klepnutí v relaci synchronně stavělo `AudioContext` (v Chromiu při 4× CPU throttlu 175 ms) před startem animace.
+
+**Root cause / approach:** `navAnimate` ukládá do `navIdle` promise konce přechodu a `apiGet` ji před vrácením výsledku počká, takže se všechny obrazovky vykreslí až po přechodu (ověřeno trasou: renderProfile z API se přesunul z +140 ms na +400 ms). `getAudioCtx(true)` staví kontext předem (po 2 s, suspended), první klepnutí ho jen probudí. Zbývá ~40–60 ms zadrhnutí prvního snímku (první layout a paint nové obrazovky, v headless WebKitu i bez animace) — na iPhonu neověřeno. Ladění: Playwright (WebKit/Chromium) s rAF logem snímků >20 ms a `Profiler`/trace přes CDP, lokální API přes `wrangler dev` (statický server odpoví chybou okamžitě a skryje překreslení).
+
+→ *No new memory entries.*
+
+### Denní výzva po vypršení času neukazuje hledané slovo
+Po vypršení času `handleTimeout` v denní výzvě písmeno po písmenu odhaloval hledané slovo červeně a držel ho ~1 s, než naskočilo další. Nově se sloty jen vyprázdní a zčervenají, slovo se neprozradí (trénink beze změny: slovo ukáže až panel mezihry).
+
+**Root cause / approach:** Panel „Čas vypršel“ je čistě z CSS a vyjíždí podle `.answer-slot.missed` (`#game:has(.answer-slot.missed)::after`), proto třída `missed` na prázdných slotech zůstala. Animace `missedReveal` smazána jako mrtvá.
+
+→ *No new memory entries.*
+
 ## 2026-10-04
 
 ### PostHog analytika: chování hráčů přes proxy /ingest

@@ -300,7 +300,9 @@ document.addEventListener('pointerdown', e => {
 // omezení prohlížečů. Všechny zvuky jdou přes jednu sběrnici: lowpass 6 kHz
 // pro kulatost a krátký „pokoj“ (konvoluce se šumem, který dozní za 0,4 s).
 let audioCtx = null, audioOut = null, audioRoom = null;
-function getAudioCtx() {
+// warm = jen sestavit (suspended), neprobouzet: stavba AudioContextu a šumové
+// ozvěny trvá desítky ms, na první klepnutí by zasekla začátek přechodu.
+function getAudioCtx(warm) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return null;
     if (!audioCtx) {
@@ -321,9 +323,10 @@ function getAudioCtx() {
         audioRoom.gain.value = 0.2;                       // kolik z každého zvuku jde do pokoje
         audioRoom.connect(room);
     }
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!warm && audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
 }
+setTimeout(() => getAudioCtx(true), 2000);
 
 // Úder paličkou jako na marimbu: parciály 1×, 4× a 10× [násobek, hlasitost,
 // délka doznění vůči dur], vyšší doznívají rychleji. bright 0–1 je hlasitost
@@ -489,6 +492,10 @@ function showToast(msg) {
 const NAV_MS = 380, NAV_EASE = 'cubic-bezier(.32, .72, 0, 1)';
 const navKey = (id) => id === 'result' ? 'welcome' : id;
 let navStack = [];
+// Doběhne, až skončí přechod. Odpověď ze serveru, co přijde během něj, by
+// přestavěla obrazovku (innerHTML, nový layout a paint celé stránky) uprostřed
+// animace a ta by sebou škubla; apiGet proto počká (viz tam).
+let navIdle = Promise.resolve();
 const navScroll = {};
 // Historie prohlížeče kopíruje zásobník: hlouběji = pushState, zpět v appce
 // = history.go(-n). Díky tomu funguje gesto i tlačítko zpět a reload vrátí
@@ -636,7 +643,7 @@ function navAnimate(from, to, kind) {
     // nahoře je vždy ta, která se hýbe přes druhou: přijíždějící, nebo odjíždějící zpět
     (kind === 'pop' || kind === 'dismiss' ? from : to).classList.add('screen-over');
     to.animate(pair[0], opt);
-    from.animate(pair[1], opt).finished.then(done, done);
+    navIdle = from.animate(pair[1], opt).finished.then(done, done);
 }
 
 /* ---------------- welcome ---------------- */
@@ -669,7 +676,9 @@ const defInflight = new Map();
 async function apiGet(path) {
     try {
         const res = await fetch(path, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
-        return res.ok ? await res.json() : null;
+        const data = res.ok ? await res.json() : null;
+        await navIdle;   // volající výsledek hned vykreslí, ne uprostřed přechodu obrazovek
+        return data;
     } catch (e) {
         return null; // offline nebo timeout — hra jede dál, jen bez významu
     }
@@ -2397,29 +2406,18 @@ function handleTimeout() {
         return;
     }
 
-    const chars = [...target];
-    const slots = [...wd.querySelectorAll('.answer-slot')];
-
-    slots.forEach(s => {
+    // Denní výzva hledané slovo neprozradí: sloty se vyprázdní a jen zčervenají
+    // (třída .missed také vyjede panel „Čas vypršel“).
+    wd.querySelectorAll('.answer-slot').forEach(s => {
         if (!s.classList.contains('locked')) {
             s.textContent = '';
             s.classList.remove('filled');
         }
         s.style.animation = 'none';
+        s.classList.add('missed');
     });
 
-    // Postupně odhalit hledané slovo červeně.
-    const stagger = 65;
-    slots.forEach((s, i) => {
-        setTimeout(() => {
-            s.textContent = chars[i] === ' ' ? '␣' : (chars[i] || '');
-            s.classList.add('filled', 'missed');
-            s.style.animation = 'missedReveal .34s cubic-bezier(.34,1.56,.64,1) both';
-        }, i * stagger);
-    });
-
-    const revealDone = slots.length * stagger + 340;
-    const hold = 850;
+    const hold = 1100;
 
     setTimeout(() => {
         if (state.gen !== gen) return;
@@ -2429,13 +2427,13 @@ function handleTimeout() {
             el.style.opacity = '0';
             el.style.transform = 'scale(.85)';
         });
-    }, revealDone + hold);
+    }, hold);
 
     setTimeout(() => {
         if (state.gen !== gen) return;
         wd.style.cssText = '';
         loadWord();
-    }, revealDone + hold + 320);
+    }, hold + 320);
 }
 
 /* ---------------- FLIP zamíchání (Shift) ---------------- */

@@ -430,11 +430,6 @@ html.scrolled .screen-bar { background: var(--bg); border-bottom-color: var(--li
     border-style: dashed;
     transform: none;
 }
-@keyframes missedReveal {
-    0%   { opacity: 0; transform: translateY(10px) scale(.55); }
-    55%  { opacity: 1; transform: translateY(0) scale(1.14); }
-    100% { opacity: 1; transform: translateY(0) scale(1); }
-}
 
 /* Letter grid */
 .letter-row {
